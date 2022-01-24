@@ -1,0 +1,94 @@
+version: 2.1
+
+orbs:
+  win: circleci/windows@2.2.0
+  rust: circleci/rust@1.6.0
+
+jobs:
+  lint:
+    docker:
+      - image: cimg/rust:1.58.1
+    steps:
+      - checkout
+      - rust/clippy
+
+  build-linux:
+    machine:
+      image: ubuntu-2004:202010-01
+    steps:
+      - checkout
+      - run:
+          command: |
+            # install dependencies
+            apt-get update
+            apt-get upgrade -y
+            apt-get install -y -q pkg-config openssl libssl-dev build-essential curl
+
+            # install rust
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
+            source $HOME/.cargo/env
+
+            # configure shell
+            echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
+      - rust/build:
+          release: true
+      - store_artifacts:
+          path: ./target/releast/taktctl
+          destination: taktctl_linux_amd64
+
+  build-windows:
+    executor: windows/default
+    environment:
+      OPENSSL_STATIC: "1"
+      OPENSSL_DIR: "C:\\OpenSSL"
+    steps:
+      - checkout
+      - run:
+          name: "Install Rust"
+          command: |
+              $ProgressPreference = "SilentlyContinue"
+              Invoke-WebRequest -Uri "https://win.rustup.rs/" -OutFile "C:\rustup-init.exe"
+              & C:\rustup-init.exe -y --default-toolchain "stable-x86_64-pc-windows-msvc" --no-modify-path --profile minimal
+              $env:Path += ";C:\Users\circleci\.cargo\bin"
+              rustc -Vv
+              cargo --version
+              rustc --version | Out-File -FilePath "rust-version"
+              if (!(Test-Path "Cargo.lock" -PathType Leaf)) {
+                  cargo generate-lockfile
+              }
+      - run:
+          name: "Install OpenSSL"
+          command: |
+              $env:Path += ";C:\Users\circleci\.cargo\bin"
+              $TargetTriple = (rustc -Vv | Select-String -Pattern "host: (.*)" | foreach {$_.Matches.Value}).split()[-1]
+              if ($TargetTriple.StartsWith("x86_64-")) {
+                  $OpenSSLBits = "64"
+              } else {
+                  $OpenSSLBits = "32"
+              }
+              $OpenSSLVersion = "1_1_0L"
+              $OpenSSLFileName = "Win${OpenSSLBits}OpenSSL-${OpenSSLVersion}.exe"
+              $ProgressPreference = "SilentlyContinue"
+              Invoke-WebRequest -Uri "http://slproweb.com/download/${OpenSSLFileName}" -OutFile "${OpenSSLFileName}"
+              Write-Host "* Done downloading ${OpenSSLFileName}"
+              dir
+              Start-Process "${OpenSSLFileName}" -ArgumentList "/SILENT /VERYSILENT /SP- /SUPPRESSMSGBOXES /DIR=C:\OpenSSL" -Wait
+              Write-Host "* Done installing ${OpenSSLFileName}"
+      - run:
+          command: cargo build --release
+      - store_artifacts:
+          path: target\\releast\\taktctl
+          destination: taktctl_windows_amd64
+
+workflows:
+  default:
+    jobs:
+      - lint
+      - build-linux:
+          requires:
+            - lint
+      - build-windows:
+          requires:
+            - lint
+
+

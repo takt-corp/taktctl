@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use colored::*;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::process;
 
 #[derive(Parser)]
@@ -61,7 +62,7 @@ fn main() {
     }
 }
 
-fn upload_command(args: &TaktCtl, feed_id: &std::string::String, path: &std::path::PathBuf) {
+fn upload_command(args: &TaktCtl, feed_id: &str, path: &Path) {
     println!("Uploading file via Takt API...");
 
     let url = format!(
